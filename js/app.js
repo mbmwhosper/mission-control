@@ -1,6 +1,9 @@
 class MissionControl {
     constructor() {
         this.currentView = 'dashboard';
+        this.serverUrl = localStorage.getItem('mc-server-url') || 'http://localhost:3000';
+        this.messages = [];
+        this.lastMessageId = 0;
         this.tasks = [
             { id: 1, title: 'Client Sentiment Tracking', desc: 'Analyzes sentiment of client communications', tags: ['research', 'ai'], progress: 35, status: 'active' },
             { id: 2, title: 'Skill Building', desc: 'Proactively identifies and builds capabilities', tags: ['automation'], progress: 12, status: 'queued' },
@@ -28,12 +31,106 @@ class MissionControl {
 
     init() {
         this.setupNavigation();
+        this.setupServerConnection();
         this.renderActivity();
         this.renderTasks();
-        this.renderChat();
+        this.loadMessages();
         this.renderDocuments();
         this.startClock();
         this.simulateRealtime();
+    }
+
+    setupServerConnection() {
+        // Poll for new messages every 2 seconds
+        setInterval(() => this.pollMessages(), 2000);
+        
+        // Add server URL config UI if not set
+        if (!localStorage.getItem('mc-server-url')) {
+            this.showServerConfig();
+        }
+    }
+
+    showServerConfig() {
+        // Show config on first load
+        const url = prompt(
+            'Enter your relay server URL:\n\n' +
+            'Format: http://YOUR_COMPUTER_IP:3000\n\n' +
+            'Find your IP in Settings > Wi-Fi > [Your Network]',
+            'http://192.168.1.100:3000'
+        );
+        if (url) {
+            this.serverUrl = url;
+            localStorage.setItem('mc-server-url', url);
+        }
+    }
+
+    async pollMessages() {
+        if (this.currentView !== 'intelligence') return;
+        
+        try {
+            const response = await fetch(`${this.serverUrl}/messages`);
+            if (!response.ok) throw new Error('Server error');
+            
+            const serverMessages = await response.json();
+            
+            // Check for new messages
+            if (serverMessages.length > 0) {
+                const lastServerMsg = serverMessages[serverMessages.length - 1];
+                if (lastServerMsg.id > this.lastMessageId) {
+                    this.messages = serverMessages.map(m => ({
+                        sender: m.sender === 'agent' ? 'agent' : 'user',
+                        name: m.name || (m.sender === 'agent' ? 'Bert' : 'You'),
+                        text: m.text,
+                        time: m.time,
+                        avatar: m.sender === 'agent' ? '🤖' : '👤'
+                    }));
+                    this.lastMessageId = lastServerMsg.id;
+                    this.renderChat();
+                }
+            }
+        } catch (err) {
+            // Silent fail - server might not be running
+            console.log('Server not reachable:', err.message);
+        }
+    }
+
+    async loadMessages() {
+        // Load from server on startup
+        try {
+            const response = await fetch(`${this.serverUrl}/messages`);
+            if (response.ok) {
+                const serverMessages = await response.json();
+                this.messages = serverMessages.map(m => ({
+                    sender: m.sender === 'agent' ? 'agent' : 'user',
+                    name: m.name || (m.sender === 'agent' ? 'Bert' : 'You'),
+                    text: m.text,
+                    time: m.time,
+                    avatar: m.sender === 'agent' ? '🤖' : '👤'
+                }));
+                if (serverMessages.length > 0) {
+                    this.lastMessageId = serverMessages[serverMessages.length - 1].id;
+                }
+                this.renderChat();
+            }
+        } catch (e) {
+            console.log('Could not load messages from server');
+        }
+    }
+
+    saveServerUrl() {
+        const input = document.getElementById('serverUrlInput');
+        if (input && input.value.trim()) {
+            this.serverUrl = input.value.trim();
+            localStorage.setItem('mc-server-url', this.serverUrl);
+            alert('Server URL saved! Pull to refresh or reopen the app.');
+        }
+    }
+
+    showConnectionStatus() {
+        const status = document.getElementById('connectionStatus');
+        if (status) {
+            status.textContent = `Connected to: ${this.serverUrl}`;
+        }
     }
 
     setupNavigation() {
@@ -173,10 +270,9 @@ class MissionControl {
         container.scrollTop = container.scrollHeight;
     }
 
-    sendMessage() {
+    async sendMessage() {
         const input = document.getElementById('chatInput');
         if (!input || !input.value.trim()) {
-            console.log('Chat: empty input, not sending');
             return;
         }
 
@@ -184,9 +280,7 @@ class MissionControl {
         const now = new Date();
         const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
-        console.log('Chat: sending message:', text);
-
-        // Add user message
+        // Add to local display immediately
         this.messages.push({
             sender: 'user',
             name: 'You',
@@ -194,32 +288,38 @@ class MissionControl {
             time: time,
             avatar: '👤'
         });
-
-        input.value = '';
         this.renderChat();
+        input.value = '';
 
-        // Simulate agent response
-        const responses = [
-            'I\'ve processed that request.',
-            'Task queued for execution.',
-            'Analyzing your input...',
-            'Command received.',
-            'Working on that now.'
-        ];
-        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
-
-        setTimeout(() => {
-            const responseTime = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        // Send to relay server
+        try {
+            const response = await fetch(`${this.serverUrl}/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sender: 'user',
+                    text: text
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error('Server error');
+            }
+            
+            console.log('Message sent to Bert via relay server');
+            
+        } catch (err) {
+            console.error('Failed to send:', err);
+            // Show error in chat
             this.messages.push({
                 sender: 'agent',
-                name: 'Assistant',
-                text: randomResponse,
-                time: responseTime,
-                avatar: '⚡'
+                name: 'System',
+                text: '⚠️ Could not connect to relay server. Make sure server.js is running on your computer.',
+                time: time,
+                avatar: '⚠️'
             });
-            console.log('Chat: agent responded');
             this.renderChat();
-        }, 800);
+        }
     }
 
     renderDocuments() {
