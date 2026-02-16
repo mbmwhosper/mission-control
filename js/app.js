@@ -175,12 +175,18 @@ class MissionControl {
 
     sendMessage() {
         const input = document.getElementById('chatInput');
-        if (!input || !input.value.trim()) return;
+        if (!input || !input.value.trim()) {
+            console.log('Chat: empty input, not sending');
+            return;
+        }
 
         const text = input.value.trim();
         const now = new Date();
         const time = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 
+        console.log('Chat: sending message:', text);
+
+        // Add user message
         this.messages.push({
             sender: 'user',
             name: 'You',
@@ -192,16 +198,28 @@ class MissionControl {
         input.value = '';
         this.renderChat();
 
+        // Simulate agent response
+        const responses = [
+            'I\'ve processed that request.',
+            'Task queued for execution.',
+            'Analyzing your input...',
+            'Command received.',
+            'Working on that now.'
+        ];
+        const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+
         setTimeout(() => {
+            const responseTime = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
             this.messages.push({
                 sender: 'agent',
                 name: 'Assistant',
-                text: 'Processing your request...',
-                time: time,
+                text: randomResponse,
+                time: responseTime,
                 avatar: '⚡'
             });
+            console.log('Chat: agent responded');
             this.renderChat();
-        }, 1000);
+        }, 800);
     }
 
     renderDocuments() {
